@@ -44,6 +44,14 @@ function parsePage(html) {
         originalPrice,
         discountPercent: discountPercent(originalPrice, currentPrice),
       });
+
+      // The "Nový X Kč" comparison Alza states on its own openbox listing is
+      // itself a legitimate new-price data point for this model+storage - not
+      // just a reference for computing *this* item's own discount. Harvest it
+      // too, so models that only ever appear as openbox here (never as a
+      // plain new listing) still get a usable reference price.
+      const openboxKey = modelKey(name);
+      if (openboxKey) newPriceReferences.push({ key: openboxKey, price: originalPrice });
     } else if (currentPrice) {
       // A brand-new-condition listing (no openbox comparison) - its current
       // price doubles as a reference "new" price for this model+storage,
@@ -66,7 +74,16 @@ export async function fetchAlzaListings(startUrl) {
 
   for (let page = 0; page < MAX_PAGES && url && !seenUrls.has(url); page++) {
     seenUrls.add(url);
-    const html = await fetchHtmlViaCurl(url);
+    let html;
+    try {
+      html = await fetchHtmlViaCurl(url);
+    } catch (err) {
+      // Alza's own rel=next chain occasionally points at a malformed URL a
+      // few pages deep - stop paginating rather than losing everything
+      // already collected from earlier pages.
+      console.error(`Alza pagination stopped at ${url}: ${err.message}`);
+      break;
+    }
     const parsed = parsePage(html);
     items.push(...parsed.items);
     newPriceReferences.push(...parsed.newPriceReferences);
