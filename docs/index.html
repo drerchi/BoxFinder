@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BoxFinder Control Panel</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --border: #2a2f3a;
+    --text: #e6e8ec;
+    --muted: #8b93a1;
+    --accent: #4f8cff;
+    --good: #35c26a;
+    --bad: #ff5a5a;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 24px 16px 64px;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  .card h2 { font-size: 15px; margin: 0 0 14px; display: flex; align-items: center; gap: 8px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 12px 0 4px; }
+  label:first-of-type { margin-top: 0; }
+  input[type=text], input[type=password], input[type=number] {
+    width: 100%;
+    background: #10131a;
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 9px 10px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-family: var(--mono);
+  }
+  input:focus { outline: none; border-color: var(--accent); }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 14px; }
+  button {
+    background: var(--accent);
+    color: white;
+    border: none;
+    padding: 9px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button.secondary { background: #262b36; }
+  button.danger { background: var(--bad); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .status { font-size: 12px; color: var(--muted); margin-top: 8px; min-height: 16px; }
+  .status.ok { color: var(--good); }
+  .status.err { color: var(--bad); }
+  .locked { opacity: 0.45; pointer-events: none; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; }
+  td.num { font-family: var(--mono); white-space: nowrap; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .tag { display: inline-block; font-size: 10px; padding: 2px 6px; border-radius: 4px; background: #262b36; color: var(--muted); margin-right: 4px; }
+  .tag.discount { background: #2a1f10; color: #ffb454; }
+  .tag.new { background: #10241e; color: var(--good); }
+  pre {
+    background: #10131a;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 12px;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin-top: 12px;
+  }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 6px; line-height: 1.5; }
+  .key-note { font-size: 12px; color: var(--muted); background: #1b1408; border: 1px solid #3a2a10; border-radius: 8px; padding: 10px 12px; margin-bottom: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🔎 BoxFinder Control Panel</h1>
+  <div class="sub">Openbox iPhone deal scanner - Alza &amp; Datart</div>
+
+  <div class="card" id="auth-card">
+    <h2>🔑 Access</h2>
+    <div class="key-note">
+      This key talks directly to your Supabase project from this browser and is stored only in this browser's
+      <code>localStorage</code> - never committed to this page's source. Don't enter it on a shared computer.
+    </div>
+    <label for="key-input">Supabase service_role key</label>
+    <input type="password" id="key-input" placeholder="eyJhbGciOi..." autocomplete="off" />
+    <div class="row">
+      <button id="unlock-btn">Unlock</button>
+      <button id="forget-btn" class="secondary">Forget key</button>
+    </div>
+    <div class="status" id="auth-status"></div>
+  </div>
+
+  <div id="app" class="locked">
+    <div class="card">
+      <h2>⚙️ Settings</h2>
+      <label for="alza-url">Alza listing URL</label>
+      <input type="text" id="alza-url" />
+      <label for="datart-url">Datart listing URL</label>
+      <input type="text" id="datart-url" />
+      <label for="threshold">Discount alert threshold (%)</label>
+      <input type="number" id="threshold" min="1" max="99" />
+      <div class="row">
+        <button id="save-settings-btn">Save settings</button>
+        <button id="reload-settings-btn" class="secondary">Reload</button>
+      </div>
+      <div class="status" id="settings-status"></div>
+    </div>
+
+    <div class="card">
+      <h2>▶️ Run</h2>
+      <div class="hint">Triggers the deployed Edge Function immediately (outside its usual schedule) and shows what it did.</div>
+      <div class="row">
+        <button id="run-btn">Run scan now</button>
+      </div>
+      <div class="status" id="run-status"></div>
+      <pre id="run-output" style="display:none"></pre>
+    </div>
+
+    <div class="card">
+      <h2>📋 Recently tracked</h2>
+      <div class="row" style="margin-top:0">
+        <button id="refresh-items-btn" class="secondary">Refresh</button>
+      </div>
+      <div id="items-status" class="status"></div>
+      <table id="items-table" style="display:none">
+        <thead>
+          <tr><th>Item</th><th>Site</th><th>Price</th><th>Discount</th><th>Flags</th><th>Seen</th></tr>
+        </thead>
+        <tbody id="items-body"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL = 'https://bedcfodwctfiaozaetsn.supabase.co';
+const FUNCTION_URL = SUPABASE_URL + '/functions/v1/scan-deals';
+const LS_KEY = 'boxfinder_service_role_key';
+
+let sb = null;
+
+const $ = (id) => document.getElementById(id);
+const setStatus = (el, msg, kind) => {
+  el.textContent = msg;
+  el.className = 'status' + (kind ? ' ' + kind : '');
+};
+
+function initClient(key) {
+  sb = supabase.createClient(SUPABASE_URL, key, { auth: { persistSession: false } });
+}
+
+async function unlock(key) {
+  initClient(key);
+  const { error } = await sb.from('settings').select('key').limit(1);
+  if (error) {
+    sb = null;
+    throw error;
+  }
+  localStorage.setItem(LS_KEY, key);
+  $('app').classList.remove('locked');
+  setStatus($('auth-status'), 'Unlocked.', 'ok');
+  loadSettings();
+  loadItems();
+}
+
+$('unlock-btn').addEventListener('click', async () => {
+  const key = $('key-input').value.trim();
+  if (!key) return;
+  setStatus($('auth-status'), 'Checking...', '');
+  try {
+    await unlock(key);
+  } catch (e) {
+    setStatus($('auth-status'), 'Failed to unlock: ' + e.message, 'err');
+  }
+});
+
+$('forget-btn').addEventListener('click', () => {
+  localStorage.removeItem(LS_KEY);
+  $('key-input').value = '';
+  sb = null;
+  $('app').classList.add('locked');
+  setStatus($('auth-status'), 'Key forgotten.', '');
+});
+
+async function loadSettings() {
+  setStatus($('settings-status'), 'Loading...', '');
+  const { data, error } = await sb.from('settings').select('key, value');
+  if (error) return setStatus($('settings-status'), 'Load failed: ' + error.message, 'err');
+  const map = Object.fromEntries(data.map((r) => [r.key, r.value]));
+  $('alza-url').value = map.alza_url || '';
+  $('datart-url').value = map.datart_url || '';
+  $('threshold').value = map.discount_threshold_percent || '20';
+  setStatus($('settings-status'), 'Loaded.', 'ok');
+}
+
+$('reload-settings-btn').addEventListener('click', loadSettings);
+
+$('save-settings-btn').addEventListener('click', async () => {
+  setStatus($('settings-status'), 'Saving...', '');
+  const rows = [
+    { key: 'alza_url', value: $('alza-url').value.trim() },
+    { key: 'datart_url', value: $('datart-url').value.trim() },
+    { key: 'discount_threshold_percent', value: String($('threshold').value || '20') },
+  ];
+  const { error } = await sb.from('settings').upsert(rows);
+  if (error) return setStatus($('settings-status'), 'Save failed: ' + error.message, 'err');
+  setStatus($('settings-status'), 'Saved - takes effect on the next scan (scheduled or manual).', 'ok');
+});
+
+$('run-btn').addEventListener('click', async () => {
+  const key = localStorage.getItem(LS_KEY);
+  const btn = $('run-btn');
+  btn.disabled = true;
+  setStatus($('run-status'), 'Running - this can take 20-40s (scrapes every page of both sites)...', '');
+  $('run-output').style.display = 'none';
+  try {
+    const res = await fetch(FUNCTION_URL, {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
+    });
+    const json = await res.json();
+    $('run-output').textContent = JSON.stringify(json, null, 2);
+    $('run-output').style.display = 'block';
+    setStatus($('run-status'), res.ok ? 'Done.' : 'Function returned an error - see output below.', res.ok ? 'ok' : 'err');
+    loadItems();
+  } catch (e) {
+    setStatus($('run-status'), 'Request failed: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+async function loadItems() {
+  setStatus($('items-status'), 'Loading...', '');
+  const { data, error } = await sb
+    .from('openbox_products')
+    .select('*')
+    .order('last_seen_at', { ascending: false })
+    .limit(30);
+  if (error) return setStatus($('items-status'), 'Load failed: ' + error.message, 'err');
+
+  const body = $('items-body');
+  body.innerHTML = '';
+  for (const row of data) {
+    const tr = document.createElement('tr');
+    const flags = [
+      row.notified_new_at ? '<span class="tag new">new</span>' : '',
+      row.notified_discount_at ? '<span class="tag discount">discount</span>' : '',
+    ].join('');
+    tr.innerHTML =
+      '<td><a href="' + row.url + '" target="_blank" rel="noopener">' + row.name + '</a></td>' +
+      '<td>' + row.site + '</td>' +
+      '<td class="num">' + row.last_price.toLocaleString() + ' Kč</td>' +
+      '<td class="num">' + Number(row.last_discount_percent).toFixed(1) + '%</td>' +
+      '<td>' + flags + '</td>' +
+      '<td>' + new Date(row.last_seen_at).toLocaleString() + '</td>';
+    body.appendChild(tr);
+  }
+  $('items-table').style.display = data.length ? 'table' : 'none';
+  setStatus($('items-status'), data.length + ' item(s).', 'ok');
+}
+
+$('refresh-items-btn').addEventListener('click', loadItems);
+
+// Auto-unlock if a key is already remembered in this browser.
+const savedKey = localStorage.getItem(LS_KEY);
+if (savedKey) {
+  $('key-input').value = savedKey;
+  unlock(savedKey).catch((e) => setStatus($('auth-status'), 'Saved key failed: ' + e.message, 'err'));
+}
+</script>
+</body>
+</html>
