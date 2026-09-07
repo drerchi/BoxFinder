@@ -2,7 +2,12 @@ export function parseCzPrice(text) {
   if (!text) return null;
   const digits = text.replace(/[^\d]/g, '');
   if (!digits) return null;
-  return parseInt(digits, 10);
+  const value = parseInt(digits, 10);
+  // Datart occasionally shows a literal "0 Kč" for a comparison price it
+  // hasn't synced yet (a site data glitch, not a real price) - treat it as
+  // missing rather than a nonsensical original price, so the reference-price
+  // fallback kicks in instead.
+  return value > 0 ? value : null;
 }
 
 export function discountPercent(originalPrice, currentPrice) {

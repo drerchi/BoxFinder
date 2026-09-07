@@ -88,30 +88,14 @@
     margin-top: 12px;
   }
   .hint { font-size: 12px; color: var(--muted); margin-top: 6px; line-height: 1.5; }
-  .key-note { font-size: 12px; color: var(--muted); background: #1b1408; border: 1px solid #3a2a10; border-radius: 8px; padding: 10px 12px; margin-bottom: 14px; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>🔎 BoxFinder Control Panel</h1>
-  <div class="sub">Openbox iPhone deal scanner - Alza &amp; Datart</div>
+  <div class="sub">Openbox iPhone deal scanner - Alza &amp; Datart. This page is public - anyone with the link can view tracked items and edit the settings below.</div>
 
-  <div class="card" id="auth-card">
-    <h2>🔑 Access</h2>
-    <div class="key-note">
-      This key talks directly to your Supabase project from this browser and is stored only in this browser's
-      <code>localStorage</code> - never committed to this page's source. Don't enter it on a shared computer.
-    </div>
-    <label for="key-input">Supabase service_role key</label>
-    <input type="password" id="key-input" placeholder="eyJhbGciOi..." autocomplete="off" />
-    <div class="row">
-      <button id="unlock-btn">Unlock</button>
-      <button id="forget-btn" class="secondary">Forget key</button>
-    </div>
-    <div class="status" id="auth-status"></div>
-  </div>
-
-  <div id="app" class="locked">
+  <div id="app">
     <div class="card">
       <h2>⚙️ Settings</h2>
       <label for="alza-url">Alza listing URL</label>
@@ -155,53 +139,20 @@
 
 <script>
 const SUPABASE_URL = 'https://bedcfodwctfiaozaetsn.supabase.co';
+// Safe to embed: the anon key is designed to be public. It can only do what
+// the RLS policies on `settings` and `openbox_products` allow (see
+// supabase/schema.sql) - read both, write `settings` - nothing else,
+// regardless of what's sent from this page.
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJlZGNmb2R3Y3RmaWFvemFldHNuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg3MTM5MzksImV4cCI6MjEwNDI4OTkzOX0.V_9nkxS3AuqsFfgjwiNpJAVx3P9yhiCf1xUG_ohMMzQ';
 const FUNCTION_URL = SUPABASE_URL + '/functions/v1/scan-deals';
-const LS_KEY = 'boxfinder_service_role_key';
 
-let sb = null;
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false } });
 
 const $ = (id) => document.getElementById(id);
 const setStatus = (el, msg, kind) => {
   el.textContent = msg;
   el.className = 'status' + (kind ? ' ' + kind : '');
 };
-
-function initClient(key) {
-  sb = supabase.createClient(SUPABASE_URL, key, { auth: { persistSession: false } });
-}
-
-async function unlock(key) {
-  initClient(key);
-  const { error } = await sb.from('settings').select('key').limit(1);
-  if (error) {
-    sb = null;
-    throw error;
-  }
-  localStorage.setItem(LS_KEY, key);
-  $('app').classList.remove('locked');
-  setStatus($('auth-status'), 'Unlocked.', 'ok');
-  loadSettings();
-  loadItems();
-}
-
-$('unlock-btn').addEventListener('click', async () => {
-  const key = $('key-input').value.trim();
-  if (!key) return;
-  setStatus($('auth-status'), 'Checking...', '');
-  try {
-    await unlock(key);
-  } catch (e) {
-    setStatus($('auth-status'), 'Failed to unlock: ' + e.message, 'err');
-  }
-});
-
-$('forget-btn').addEventListener('click', () => {
-  localStorage.removeItem(LS_KEY);
-  $('key-input').value = '';
-  sb = null;
-  $('app').classList.add('locked');
-  setStatus($('auth-status'), 'Key forgotten.', '');
-});
 
 async function loadSettings() {
   setStatus($('settings-status'), 'Loading...', '');
@@ -229,15 +180,17 @@ $('save-settings-btn').addEventListener('click', async () => {
 });
 
 $('run-btn').addEventListener('click', async () => {
-  const key = localStorage.getItem(LS_KEY);
   const btn = $('run-btn');
   btn.disabled = true;
   setStatus($('run-status'), 'Running - this can take 20-40s (scrapes every page of both sites)...', '');
   $('run-output').style.display = 'none';
   try {
+    // The anon key is only good for passing the function's JWT gate here -
+    // the function itself always uses its own service_role secret
+    // internally for the actual scan/DB work, regardless of who invoked it.
     const res = await fetch(FUNCTION_URL, {
       method: 'POST',
-      headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
+      headers: { Authorization: 'Bearer ' + SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
     });
     const json = await res.json();
     $('run-output').textContent = JSON.stringify(json, null, 2);
@@ -268,11 +221,16 @@ async function loadItems() {
       row.notified_new_at ? '<span class="tag new">new</span>' : '',
       row.notified_discount_at ? '<span class="tag discount">discount</span>' : '',
     ].join('');
+    // last_original_price === last_price means no comparable "new" price was
+    // found anywhere (own site or the reference table) - that's "unknown",
+    // not a confirmed 0% discount, so don't show it as one.
+    const hasComparablePrice = row.last_original_price > row.last_price;
+    const discountCell = hasComparablePrice ? Number(row.last_discount_percent).toFixed(1) + '%' : '<span title="No comparable new price found on the site or in the reference table">–</span>';
     tr.innerHTML =
       '<td><a href="' + row.url + '" target="_blank" rel="noopener">' + row.name + '</a></td>' +
       '<td>' + row.site + '</td>' +
       '<td class="num">' + row.last_price.toLocaleString() + ' Kč</td>' +
-      '<td class="num">' + Number(row.last_discount_percent).toFixed(1) + '%</td>' +
+      '<td class="num">' + discountCell + '</td>' +
       '<td>' + flags + '</td>' +
       '<td>' + new Date(row.last_seen_at).toLocaleString() + '</td>';
     body.appendChild(tr);
@@ -283,12 +241,8 @@ async function loadItems() {
 
 $('refresh-items-btn').addEventListener('click', loadItems);
 
-// Auto-unlock if a key is already remembered in this browser.
-const savedKey = localStorage.getItem(LS_KEY);
-if (savedKey) {
-  $('key-input').value = savedKey;
-  unlock(savedKey).catch((e) => setStatus($('auth-status'), 'Saved key failed: ' + e.message, 'err'));
-}
+loadSettings();
+loadItems();
 </script>
 </body>
 </html>

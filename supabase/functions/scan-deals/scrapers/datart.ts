@@ -50,11 +50,14 @@ function parsePage(html: string) {
     const currentPrice = parseCzPrice(box.find('.item-price[data-product-price]').first().attr('data-product-price'));
     if (!currentPrice) return;
 
-    // Datart only shows a struck-through "new" comparison price when it
-    // currently sells that exact model/color/storage as new stock itself -
-    // for a lot of openbox listings there simply is none here. The caller
-    // fills that gap from the reference price table when this is null.
-    const strikeEl = box.find('.cut-price--strike').first().clone();
+    // Datart shows a "new" comparison price under one of two classes -
+    // `--strike` (visually struck through) or `--lessOrEqual` (current price
+    // already at/below the reference, so no strike shown) - both carry the
+    // same "Prodejní cena nového produktu" comparison, just styled
+    // differently. Only genuinely missing for listings Datart doesn't
+    // currently sell new at all; the caller fills that gap from the
+    // reference price table when this is null.
+    const strikeEl = box.find('.cut-price--strike, .cut-price--lessOrEqual').first().clone();
     strikeEl.find('.sr-only').remove();
     const ownOriginalPrice = parseCzPrice(strikeEl.text());
 

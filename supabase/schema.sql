@@ -41,3 +41,21 @@ insert into settings (key, value) values
   ('datart_url', 'https://www.datart.cz/iphone.html/filter/o:3/v:-7:4:3:5:6'),
   ('discount_threshold_percent', '20')
 on conflict (key) do nothing;
+
+-- The control panel (docs/index.html, public on GitHub Pages) uses the anon
+-- key, not service_role - scoped narrowly so a public page can't be used to
+-- do more than edit these specific settings and read tracked items. Anyone
+-- with the page URL can change alza_url/datart_url/discount_threshold_percent
+-- this way (no auth on the page itself); nothing else is exposed.
+alter table settings enable row level security;
+alter table openbox_products enable row level security;
+
+drop policy if exists "anon read settings" on settings;
+create policy "anon read settings" on settings for select to anon using (true);
+drop policy if exists "anon write settings" on settings;
+create policy "anon write settings" on settings for insert to anon with check (true);
+drop policy if exists "anon update settings" on settings;
+create policy "anon update settings" on settings for update to anon using (true) with check (true);
+
+drop policy if exists "anon read openbox_products" on openbox_products;
+create policy "anon read openbox_products" on openbox_products for select to anon using (true);
