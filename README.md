@@ -3,13 +3,20 @@
 Scans the Alza and Datart openbox/bazaar iPhone listings, computes each item's
 discount vs. the price of a brand-new equivalent, and sends a Telegram message
 when a listing is either brand new to the catalog or discounted at/above a
-configurable threshold (default 15%). Pure HTML scraping + arithmetic - no
+configurable threshold (default 20%). Pure HTML scraping + arithmetic - no
 AI/LLM calls involved.
 
 **Live deployment:** runs as a Supabase Edge Function (`supabase/functions/scan-deals`)
-on a cron schedule, 10x/day. `src/` is the original Node CLI version, kept
-around for local testing/debugging - both share the same Supabase tables, so
-running either one is safe and they stay in sync.
+on a cron schedule, once daily at 9:00 Europe/Prague. `src/` is the original
+Node CLI version, kept around for local testing/debugging - both share the
+same Supabase tables, so running either one is safe and they stay in sync.
+
+**Control panel:** https://drerchi.github.io/BoxFinder/ - a static page
+(`docs/index.html`, deployed via GitHub Pages) to edit the Alza/Datart URLs and
+discount threshold, trigger a scan on demand, and see recently tracked items.
+It talks directly to Supabase from your browser using your service_role key,
+entered once and kept only in that browser's `localStorage` - never in the
+page's source or the repo.
 
 ## How it works
 
@@ -25,11 +32,19 @@ running either one is safe and they stay in sync.
     filled in from a reference table (`new_iphone_prices`) harvested from
     Alza's own brand-new (non-bazar) listings each scan, matched by a
     normalized model+storage key (see `lib/modelKey`).
-- `lib/store` keeps one row per product in `openbox_products`, so you're
-  notified when a listing is either new to the catalog or newly discounted -
-  not re-pinged every run for something already flagged.
+- `lib/store` keeps one row per product in `openbox_products`. Two kinds of
+  alert exist - "new listing" and "big discount" - each firing **at most once
+  ever** per item (`notified_new_at` / `notified_discount_at`), independently
+  of each other, regardless of later price changes.
+- Every alert always shows current price, original price, and discount % when
+  a comparable original price is known (own or from the reference table);
+  falls back to price-only for the rare item with no comparable price anywhere.
 - `lib/telegram` sends the alert via your bot's `sendMessage` API, paced to
   stay under Telegram's per-chat flood limit.
+- `alza_url`, `datart_url`, and `discount_threshold_percent` are read from the
+  `settings` table at the start of every scan (editable via the control panel
+  above, no redeploy needed) - the values in the scraper files are only a
+  fallback if that table is ever empty/unreachable.
 
 ## Why the Edge Function routes through ScraperAPI
 
@@ -45,17 +60,21 @@ IP, which is why `src/lib/fetchHtml.js` shells out to `curl` for Alza only -
 unrelated issue, different cause, only relevant to the local version).
 
 **Cost note:** ScraperAPI's free tier is a one-time 5,000-credit signup bonus,
-not a recurring monthly allowance - at ~1,200 requests/month (10 runs/day x 2
-sites x a few pages each) that lasts roughly 4 months, after which the Hobby
-plan ($49/mo) is needed to keep the cloud version running. The local `src/`
-version has no such cost since it isn't blocked by IP in the first place.
+not a recurring monthly allowance. Measured directly (not estimated): one full
+scan of both sites costs ~51 credits, likely because ScraperAPI auto-upgrades
+to its premium/residential proxy tier for these specific protected sites (a
+bare-tier proxy is exactly what gets blocked in the first place). At 1
+run/day that's ~51 credits/day - the free balance lasts roughly 3 months from
+when it was first used, after which the Hobby plan ($49/mo) is needed to keep
+the cloud version running. The local `src/` version has no such cost since
+it isn't blocked by IP in the first place.
 
 ## Setup
 
 ### Database (one-time)
 
 Run `supabase/schema.sql` in the Supabase SQL editor (or via `psql`/CLI) to
-create `openbox_products` and `new_iphone_prices`.
+create `openbox_products`, `new_iphone_prices`, and `settings`.
 
 ### Edge Function (already deployed)
 
@@ -73,8 +92,9 @@ supabase functions deploy scan-deals
 ### Cron schedule (already active)
 
 `supabase/cron.sql` schedules `scan-openbox-deals` via `pg_cron` + `pg_net`,
-10x/day (`0 4,6,8,10,12,14,16,18,20,22 * * *`, UTC - roughly 6:00-24:00
-Europe/Prague). Check on it from the SQL editor:
+once daily (`0 7 * * *` UTC = 9:00 Europe/Prague during CEST/summer - bump to
+hour 8 once clocks fall back to CET/winter in late October). Check on it from
+the SQL editor:
 
 ```sql
 select * from cron.job;
@@ -84,6 +104,12 @@ select * from cron.job_run_details order by start_time desc limit 20;
 To change the schedule, edit the cron expression in `supabase/cron.sql` and
 re-run it (it uses `cron.schedule` with the same job name, which replaces the
 existing schedule).
+
+### Control panel (already deployed)
+
+`docs/index.html`, published via GitHub Pages from this repo (`master` branch,
+`/docs` folder) at https://drerchi.github.io/BoxFinder/. To update it, edit
+the file and push to `master` - Pages rebuilds automatically.
 
 ### Local Node version (optional, for testing)
 
