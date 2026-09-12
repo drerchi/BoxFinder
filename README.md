@@ -2,9 +2,8 @@
 
 Scans the Alza and Datart openbox/bazaar iPhone listings, computes each item's
 discount vs. the price of a brand-new equivalent, and sends a Telegram message
-when a listing is either brand new to the catalog or discounted at/above a
-configurable threshold (default 20%). Pure HTML scraping + arithmetic - no
-AI/LLM calls involved.
+when a listing is discounted at/above a configurable threshold. Pure HTML
+scraping + arithmetic - no AI/LLM calls involved.
 
 **Live deployment:** runs as a Supabase Edge Function (`supabase/functions/scan-deals`)
 on a cron schedule, once daily at 9:00 Europe/Prague. `src/` is the original
@@ -14,9 +13,9 @@ same Supabase tables, so running either one is safe and they stay in sync.
 **Control panel:** https://drerchi.github.io/BoxFinder/ - a static page
 (`docs/index.html`, deployed via GitHub Pages) to edit the Alza/Datart URLs and
 discount threshold, trigger a scan on demand, and see recently tracked items.
-It talks directly to Supabase from your browser using your service_role key,
-entered once and kept only in that browser's `localStorage` - never in the
-page's source or the repo.
+Public page, no login - talks to Supabase with a hardcoded anon key scoped by
+RLS policies (read settings/tracked items, write only settings - see
+`supabase/schema.sql`).
 
 ## How it works
 
@@ -32,13 +31,17 @@ page's source or the repo.
     filled in from a reference table (`new_iphone_prices`) harvested from
     Alza's own brand-new (non-bazar) listings each scan, matched by a
     normalized model+storage key (see `lib/modelKey`).
-- `lib/store` keeps one row per product in `openbox_products`. Two kinds of
-  alert exist - "new listing" and "big discount" - each firing **at most once
-  ever** per item (`notified_new_at` / `notified_discount_at`), independently
-  of each other, regardless of later price changes.
-- Every alert always shows current price, original price, and discount % when
-  a comparable original price is known (own or from the reference table);
-  falls back to price-only for the rare item with no comparable price anywhere.
+- `lib/store` keeps one row per product in `openbox_products`. Only a discount
+  at/above the threshold sends a Telegram message, and only **once ever** per
+  item (`notified_discount_at`), regardless of later price changes - a genuine
+  new listing alone no longer pings by itself (it used to; too noisy in
+  practice since most new listings aren't actually discounted). "New" is still
+  tracked (`notified_new_at`) for the control panel's badge, and still shows
+  as a bonus badge alongside a real discount alert when both are true.
+- Every alert shows current price, original price, and discount % when a
+  comparable original price is known (own or from the reference table); falls
+  back to price-only for the rare item with no comparable price anywhere
+  (shown as "-" in the control panel, not a misleading "0%").
 - `lib/telegram` sends the alert via your bot's `sendMessage` API, paced to
   stay under Telegram's per-chat flood limit.
 - `alza_url`, `datart_url`, and `discount_threshold_percent` are read from the

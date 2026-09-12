@@ -93,18 +93,18 @@ async function runScan() {
 
     const isNewListing = !existing;
     const isDiscount = item.discountPercent >= THRESHOLD;
-    // Each alert kind fires at most once ever per item - a "new listing" ping
-    // and a "big discount" ping are independent, but neither repeats once sent,
-    // regardless of further price changes.
-    const shouldNotifyNew = isNewListing && !isBootstrap;
+    // "New listing" is tracked for bookkeeping/the control panel's badge, but
+    // no longer sends a Telegram message by itself - only a genuine discount
+    // crossing does, and (like before) at most once ever per item.
+    const isNewForRecordKeeping = isNewListing && !isBootstrap;
     const shouldNotifyDiscount = isDiscount && !existing?.notified_discount_at;
 
     const tags: string[] = [];
-    if (shouldNotifyNew) tags.push('new');
+    if (isNewForRecordKeeping) tags.push('new');
     if (shouldNotifyDiscount) tags.push('discount');
 
     let didNotify = false;
-    if (tags.length) {
+    if (shouldNotifyDiscount) {
       try {
         await sendTelegramMessage(BOT_TOKEN!, CHAT_ID!, formatDealMessage(item, tags));
         didNotify = true;
@@ -123,7 +123,7 @@ async function runScan() {
       }
     }
 
-    await store.upsertScan(dealId, item, existing, didNotify && shouldNotifyNew, didNotify && shouldNotifyDiscount);
+    await store.upsertScan(dealId, item, existing, isNewForRecordKeeping, didNotify);
   }
 
   console.log(`Done. Sent ${notifiedCount} Telegram notification(s).`);
