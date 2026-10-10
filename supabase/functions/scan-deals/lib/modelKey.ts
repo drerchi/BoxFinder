@@ -23,3 +23,15 @@ export function modelKey(name: string | null | undefined): string | null {
 
   return ['iphone', gen, variant, storage].filter(Boolean).join('-');
 }
+
+// True if the name is an iPhone at or above `minGeneration` (e.g. 16 keeps
+// 16/16e/17/18/Air, drops 15 and older and SE). Names that don't parse as an
+// iPhone at all are kept - better a stray alert than a silently dropped deal.
+export function isWantedGeneration(name: string | null | undefined, minGeneration: number): boolean {
+  const genMatch = name?.match(GEN_PATTERN);
+  if (!genMatch) return true;
+  const gen = genMatch[1].toLowerCase();
+  if (gen === 'air') return true;
+  if (gen === 'se') return false;
+  return parseInt(gen, 10) >= minGeneration;
+}

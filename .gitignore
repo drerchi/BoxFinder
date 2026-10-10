@@ -3,3 +3,5 @@ node_modules/
 data/seen.json
 supabase/.temp
 supabase/.branches
+.browser-profile/
+logs/

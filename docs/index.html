@@ -113,7 +113,8 @@
 
     <div class="card">
       <h2>▶️ Run</h2>
-      <div class="hint">Triggers the deployed Edge Function immediately (outside its usual schedule) and shows what it did.</div>
+      <div class="hint">The laptop scans for free several times a day; the cloud only scans when the laptop has been offline for 12h+. This button forces a cloud scan right away - it costs ~55 ScraperAPI credits (1,000/month on the free plan).</div>
+      <div class="status" id="scan-times"></div>
       <div class="row">
         <button id="run-btn">Run scan now</button>
       </div>
@@ -162,6 +163,8 @@ async function loadSettings() {
   $('alza-url').value = map.alza_url || '';
   $('datart-url').value = map.datart_url || '';
   $('threshold').value = map.discount_threshold_percent || '20';
+  const fmt = (iso) => (iso ? new Date(iso).toLocaleString() : 'never');
+  setStatus($('scan-times'), 'Last laptop scan: ' + fmt(map.last_local_scan_at) + ' · Last cloud scan: ' + fmt(map.last_cloud_scan_at), '');
   setStatus($('settings-status'), 'Loaded.', 'ok');
 }
 
@@ -191,6 +194,7 @@ $('run-btn').addEventListener('click', async () => {
     const res = await fetch(FUNCTION_URL, {
       method: 'POST',
       headers: { Authorization: 'Bearer ' + SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ force: true }),
     });
     const json = await res.json();
     $('run-output').textContent = JSON.stringify(json, null, 2);

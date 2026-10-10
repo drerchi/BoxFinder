@@ -114,9 +114,37 @@ existing schedule).
 `/docs` folder) at https://drerchi.github.io/BoxFinder/. To update it, edit
 the file and push to `master` - Pages rebuilds automatically.
 
-### Local Node version (optional, for testing)
+### Local version on the laptop (main scanner, no ScraperAPI credits)
+
+ScraperAPI's free plan is 1,000 credits/month and an Alza page costs 10 of
+them, so a full daily cloud scan (~51 credits) doesn't fit. The local version
+in `src/` runs on the laptop instead, for free:
+
+- **Alza:** opens the category in a real Chrome (off-screen window - headless
+  Chrome gets a Cloudflare 403) and calls Alza's own
+  `/Services/EShopService.svc/Filter` endpoint from inside the page with the
+  condition filter (`cst=...`) from the configured `alza_url`. Returns only
+  openbox listings, ~24 per call, usually 1-2 calls. Openbox items without a
+  "Nový" price get one from the reference table, same as Datart.
+- **Datart:** plain HTTP fetch of `datart_url` (its filter is in the path, so
+  it's applied server-side).
+- Models older than `MIN_IPHONE_GENERATION` (default 16) are skipped on both
+  sites.
+
+Setup:
 
 1. `npm install`
 2. Copy `.env.example` to `.env` and fill in `TELEGRAM_BOT_TOKEN`,
    `TELEGRAM_CHAT_ID`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`.
-3. `npm run scan`
+3. `npm run scan -- --dry-run` to see what it finds without writing anything,
+   `npm run scan` for a real run.
+4. `powershell -ExecutionPolicy Bypass -File scripts\install-task.ps1` registers
+   the "BoxFinder scan" scheduled task (default 8:00-23:00 every 3 hours; pass
+   `-Times '09:00','21:00'` to change). It runs while signed in, including with
+   the screen locked, wakes the laptop when it can, and catches up on runs
+   missed while the laptop was off. Output goes to `logs/scan.log`.
+
+When the laptop scanner is in use, unschedule the cloud cron (Supabase SQL
+editor: `select cron.unschedule('scan-openbox-deals');`) so it stops spending
+ScraperAPI credits. The control panel's "Run scan now" button still calls the
+cloud function and costs ~51 credits per click.

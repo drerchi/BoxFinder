@@ -1,13 +1,15 @@
--- Runs the scan-deals Edge Function 1x/day at 9:00 Europe/Prague.
--- pg_cron runs on fixed UTC, no DST awareness: 7 UTC = 9:00 CEST (summer,
--- currently in effect). Once EU clocks fall back in late October, this drifts
--- to 8:00 local until manually bumped to hour 8 for CET (winter).
+-- Calls the scan-deals Edge Function every hour. That's only a check: the
+-- function itself skips (no ScraperAPI credits spent) while the laptop scanner
+-- has reported a successful scan within the last 12h, and otherwise spaces its
+-- own scans to at most one per 24h, further apart if credits run short - see
+-- skipReason() in functions/scan-deals/index.ts. Hourly, so a laptop outage is
+-- picked up within ~1h of the 12h mark.
 create extension if not exists pg_cron with schema extensions;
 create extension if not exists pg_net with schema extensions;
 
 select cron.schedule(
   'scan-openbox-deals',
-  '0 7 * * *',
+  '0 * * * *',
   $$
   select net.http_post(
     url := 'https://bedcfodwctfiaozaetsn.supabase.co/functions/v1/scan-deals',

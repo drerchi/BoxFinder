@@ -14,6 +14,13 @@ export function createStore(supabaseUrl, supabaseKey) {
       return Object.fromEntries(data.map((row) => [row.key, row.value]));
     },
 
+    async setSetting(key, value) {
+      const { error } = await supabase
+        .from(SETTINGS_TABLE)
+        .upsert({ key, value, updated_at: new Date().toISOString() });
+      if (error) throw error;
+    },
+
     async getReferencePrices() {
       const { data, error } = await supabase.from(PRICES_TABLE).select('model_key, price');
       if (error) throw error;

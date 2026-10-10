@@ -22,6 +22,13 @@ export function createStore(supabaseUrl: string, supabaseKey: string) {
       return Object.fromEntries((data ?? []).map((row: any) => [row.key, row.value]));
     },
 
+    async setSetting(key: string, value: string) {
+      const { error } = await supabase
+        .from(SETTINGS_TABLE)
+        .upsert({ key, value, updated_at: new Date().toISOString() });
+      if (error) throw error;
+    },
+
     async isEmpty(): Promise<boolean> {
       const { count, error } = await supabase.from(TABLE).select('id', { count: 'exact', head: true });
       if (error) throw error;
