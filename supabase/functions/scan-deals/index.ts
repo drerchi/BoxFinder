@@ -13,47 +13,35 @@ const DEFAULT_DATART_URL = 'https://www.datart.cz/iphone.html/filter/o:3/v:-7:4:
 const DEFAULT_THRESHOLD = Number(Deno.env.get('DISCOUNT_THRESHOLD_PERCENT') ?? 20);
 const MIN_GENERATION = Number(Deno.env.get('MIN_IPHONE_GENERATION') ?? 16);
 
-// The laptop (src/, scheduled task) is the main scanner - it's free. This
-// function is the fallback for when the laptop is off: the cron calls it
-// hourly, and it only actually scans (spending ScraperAPI credits) when the
-// laptop hasn't reported a successful scan for LOCAL_FRESH_HOURS.
-const LOCAL_FRESH_HOURS = Number(Deno.env.get('LOCAL_FRESH_HOURS') ?? 12);
-// Measured ~51-61 credits per full scan (Alza pages cost 10 each, Datart 1);
-// rounded up so the budget math errs on the safe side.
-const CREDITS_PER_SCAN = 70;
-const MIN_CLOUD_INTERVAL_HOURS = 24;
+// The laptop (src/, scheduled task) is the main scanner, running hourly - a
+// missing laptop scan by early afternoon means you're away from home for the
+// day, not just a momentary gap. This function is a once-a-day catch-up for
+// that case: the cron calls it once, shortly after LOCAL_CHECK_BY (13:00
+// local - see cron.sql), and it only actually scans (spending ScraperAPI
+// credits) if the laptop hasn't reported a successful scan since
+// LOCAL_CHECK_HOURS before that - i.e. since ~8:00. If the laptop checked in
+// during that window, this does nothing for the rest of the day.
+const LOCAL_CHECK_HOURS = Number(Deno.env.get('LOCAL_CHECK_HOURS') ?? 5);
 
 const hoursSince = (iso: string | undefined) =>
   iso ? (Date.now() - new Date(iso).getTime()) / 3_600_000 : Infinity;
 
-// Returns why the scan should be skipped, or null to go ahead. Spaces cloud
-// scans so the remaining ScraperAPI credits last until the plan renews: at
-// most one per 24h, further apart when credits are short.
-async function skipReason(settings: Record<string, string>): Promise<string | null> {
+const localDateString = (iso: string | undefined) => (iso ? new Date(iso).toISOString().slice(0, 10) : null);
+
+// Returns why the scan should be skipped, or null to go ahead.
+function skipReason(settings: Record<string, string>): string | null {
   const sinceLocal = hoursSince(settings.last_local_scan_at);
-  if (sinceLocal < LOCAL_FRESH_HOURS) {
-    return `laptop scanned ${sinceLocal.toFixed(1)}h ago`;
+  if (sinceLocal < LOCAL_CHECK_HOURS) {
+    return `laptop scanned ${sinceLocal.toFixed(1)}h ago - you're home, no cloud fallback needed`;
   }
 
-  let intervalHours = MIN_CLOUD_INTERVAL_HOURS;
-  const apiKey = Deno.env.get('SCRAPERAPI_KEY');
-  if (apiKey) {
-    try {
-      const res = await fetch(`https://api.scraperapi.com/account?api_key=${apiKey}`);
-      const account = await res.json();
-      const affordable = Math.floor(Number(account.creditsLeft) / CREDITS_PER_SCAN);
-      if (affordable <= 0) return `only ${account.creditsLeft} ScraperAPI credits left until ${account.nextBillingDate}`;
-      const hoursToReset = (new Date(account.nextBillingDate).getTime() - Date.now()) / 3_600_000;
-      intervalHours = Math.max(MIN_CLOUD_INTERVAL_HOURS, hoursToReset / affordable);
-    } catch (err: any) {
-      console.error('ScraperAPI account check failed, using the default interval:', err.message);
-    }
+  // Already ran the once-daily catch-up today - never fire twice even if the
+  // cron somehow triggers more than once (e.g. a manual re-trigger).
+  const today = new Date().toISOString().slice(0, 10);
+  if (localDateString(settings.last_cloud_scan_at) === today) {
+    return `already ran today's once-daily cloud fallback at ${settings.last_cloud_scan_at}`;
   }
 
-  const sinceCloud = hoursSince(settings.last_cloud_scan_at);
-  if (sinceCloud < intervalHours) {
-    return `last cloud scan ${sinceCloud.toFixed(1)}h ago, next allowed after ${intervalHours.toFixed(1)}h (credit budget)`;
-  }
   return null;
 }
 
@@ -98,7 +86,7 @@ async function runScan(force: boolean) {
   const settings = await store.getSettings();
 
   // Manual runs from the control panel pass {"force": true} and always scan.
-  const skipped = force ? null : await skipReason(settings);
+  const skipped = force ? null : skipReason(settings);
   if (skipped) {
     console.log(`Skipping cloud scan: ${skipped}`);
     return { skipped };

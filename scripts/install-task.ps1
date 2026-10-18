@@ -11,10 +11,13 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $taskName = 'BoxFinder scan'
-$runner = Join-Path $PSScriptRoot 'run-scan.cmd'
+$runner = Join-Path $PSScriptRoot 'run-scan-silent.vbs'
 $repoRoot = Split-Path $PSScriptRoot -Parent
 
-$action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"$runner`"" -WorkingDirectory $repoRoot
+# wscript.exe + the .vbs wrapper, not cmd.exe directly - a cmd.exe window
+# flashes on screen for a moment no matter what flags you give it; this is
+# the one way that actually launches with zero visible window.
+$action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument "`"$runner`"" -WorkingDirectory $repoRoot
 $triggers = $Times | ForEach-Object { New-ScheduledTaskTrigger -Daily -At $_ }
 $settings = New-ScheduledTaskSettingsSet `
     -StartWhenAvailable `

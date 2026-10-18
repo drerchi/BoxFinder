@@ -5,10 +5,14 @@ discount vs. the price of a brand-new equivalent, and sends a Telegram message
 when a listing is discounted at/above a configurable threshold. Pure HTML
 scraping + arithmetic - no AI/LLM calls involved.
 
-**Live deployment:** runs as a Supabase Edge Function (`supabase/functions/scan-deals`)
-on a cron schedule, once daily at 9:00 Europe/Prague. `src/` is the original
-Node CLI version, kept around for local testing/debugging - both share the
-same Supabase tables, so running either one is safe and they stay in sync.
+**Live deployment:** hybrid. The laptop (`src/`, Windows scheduled task) is the
+main scanner - it's free and runs hourly. The Supabase Edge Function
+(`supabase/functions/scan-deals`) is a once-a-day away-from-home catch-up: a
+single cron check at 13:05 Europe/Prague asks "did the laptop scan since
+~8:00?" - if yes, it's a no-op; if not, it scans once (spending ScraperAPI
+credits) as that day's only cloud run. Both write to the same Supabase tables,
+so switching between them (or running neither for a day) never causes
+duplicate alerts.
 
 **Control panel:** https://drerchi.github.io/BoxFinder/ - a static page
 (`docs/index.html`, deployed via GitHub Pages) to edit the Alza/Datart URLs and
@@ -62,15 +66,14 @@ local Node version doesn't need this since it runs from a normal home IP
 IP, which is why `src/lib/fetchHtml.js` shells out to `curl` for Alza only -
 unrelated issue, different cause, only relevant to the local version).
 
-**Cost note:** ScraperAPI's free tier is a one-time 5,000-credit signup bonus,
-not a recurring monthly allowance. Measured directly (not estimated): one full
-scan of both sites costs ~51 credits, likely because ScraperAPI auto-upgrades
-to its premium/residential proxy tier for these specific protected sites (a
-bare-tier proxy is exactly what gets blocked in the first place). At 1
-run/day that's ~51 credits/day - the free balance lasts roughly 3 months from
-when it was first used, after which the Hobby plan ($49/mo) is needed to keep
-the cloud version running. The local `src/` version has no such cost since
-it isn't blocked by IP in the first place.
+**Cost note:** ScraperAPI's plan is 1,000 credits/month, and one full scan of
+both sites costs ~51 credits (likely ScraperAPI auto-upgrading to its
+premium/residential proxy tier for these specific protected sites - a
+bare-tier proxy is exactly what gets blocked in the first place). The cloud
+function only runs when the laptop missed its 8:00-13:00 window, so cost
+scales with how many days you're away from home, not with time - every day
+the laptop checks in, the cloud spends nothing. The local `src/` version has
+no such cost since it isn't blocked by IP in the first place.
 
 ## Setup
 
@@ -95,9 +98,11 @@ supabase functions deploy scan-deals
 ### Cron schedule (already active)
 
 `supabase/cron.sql` schedules `scan-openbox-deals` via `pg_cron` + `pg_net`,
-once daily (`0 7 * * *` UTC = 9:00 Europe/Prague during CEST/summer - bump to
-hour 8 once clocks fall back to CET/winter in late October). Check on it from
-the SQL editor:
+once daily at `5 11 * * *` UTC = 13:05 Europe/Prague during CEST/summer - bump
+to `5 12 * * *` once clocks fall back to CET/winter in late October. The
+function itself decides whether to actually scan (see `skipReason()` and
+`LOCAL_CHECK_HOURS`, default 5) based on `last_local_scan_at` - the cron
+firing doesn't mean a scan happened. Check on it from the SQL editor:
 
 ```sql
 select * from cron.job;
@@ -116,9 +121,9 @@ the file and push to `master` - Pages rebuilds automatically.
 
 ### Local version on the laptop (main scanner, no ScraperAPI credits)
 
-ScraperAPI's free plan is 1,000 credits/month and an Alza page costs 10 of
-them, so a full daily cloud scan (~51 credits) doesn't fit. The local version
-in `src/` runs on the laptop instead, for free:
+A full cloud scan costs ~51 credits against a 1,000/month budget, so it's used
+sparingly (see above) - the local version in `src/` is the one that actually
+runs regularly, on the laptop, for free:
 
 - **Alza:** opens the category in a real Chrome (off-screen window - headless
   Chrome gets a Cloudflare 403) and calls Alza's own
@@ -139,12 +144,15 @@ Setup:
 3. `npm run scan -- --dry-run` to see what it finds without writing anything,
    `npm run scan` for a real run.
 4. `powershell -ExecutionPolicy Bypass -File scripts\install-task.ps1` registers
-   the "BoxFinder scan" scheduled task (default 8:00-23:00 every 3 hours; pass
-   `-Times '09:00','21:00'` to change). It runs while signed in, including with
-   the screen locked, wakes the laptop when it can, and catches up on runs
-   missed while the laptop was off. Output goes to `logs/scan.log`.
+   the "BoxFinder scan" scheduled task (default every hour, `00:00`-`23:00`;
+   pass e.g. `-Times '09:00','21:00'` to change). It runs while signed in,
+   including with the screen locked, wakes the laptop when it can, and catches
+   up on runs missed while the laptop was off. Output goes to `logs/scan.log`.
+   Each successful run writes `last_local_scan_at` to the `settings` table -
+   that's what the cloud function's once-a-day check reads.
 
-When the laptop scanner is in use, unschedule the cloud cron (Supabase SQL
-editor: `select cron.unschedule('scan-openbox-deals');`) so it stops spending
-ScraperAPI credits. The control panel's "Run scan now" button still calls the
-cloud function and costs ~51 credits per click.
+No need to unschedule the cloud cron - it's already a no-op whenever the
+laptop has checked in recently (see "Live deployment" above), so leaving both
+active is the normal, intended state. The control panel's "Run scan now"
+button always forces a real cloud scan regardless (costs ~51 credits/click),
+for on-demand testing.
